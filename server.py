@@ -1,8 +1,9 @@
+
 """
 Macro Core Dashboard v2.0 — Market Data Proxy Server
 FastAPI + TradingView scanner API backend with 60s cache
 Deployed on Render — serves /api/market to public Dashboard HTML
-v2.3 — Symbol matching by 's' field (not position-dependent)
+v2.4 — Added UKOIL + DJI
 """
 
 from fastapi import FastAPI
@@ -16,7 +17,7 @@ import os
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Macro Dashboard API", version="2.3")
+app = FastAPI(title="Macro Dashboard API", version="2.4")
 
 app.add_middleware(
     CORSMiddleware,
@@ -28,6 +29,7 @@ app.add_middleware(
 TV_SYMBOL_MAP = {
     "OANDA:XAUUSD":  "XAUUSD",
     "TVC:SILVER":    "SIUSD",
+    "FX:UKOIL":      "UKOIL",
     "AMEX:GLD":      "GLD",
     "AMEX:SLV":      "SLV",
     "TVC:DXY":       "DX-Y.NYB",
@@ -40,6 +42,7 @@ TV_SYMBOL_MAP = {
     "TVC:US30Y":     "TYX",
     "TVC:US05Y":     "FVX",
     "SP:SPX":        "^GSPC",
+    "TVC:DJI":       "^DJI",
     "CBOE:VIX":      "^VIX",
     "NASDAQ:SOXX":   "SOXX",
     "NASDAQ:NVDA":   "NVDA",
@@ -171,7 +174,7 @@ async def health():
 
 @app.get("/")
 async def root():
-    return {"service": "Macro Dashboard API v2.3", "source": "TradingView"}
+    return {"service": "Macro Dashboard API v2.4", "source": "TradingView"}
 
 if os.path.exists("index.html"):
     from fastapi.responses import FileResponse
