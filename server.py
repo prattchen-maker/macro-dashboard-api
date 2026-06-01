@@ -1,7 +1,8 @@
 """
 Macro Core Dashboard v2.0 — Market Data Proxy Server
-FastAPI + TradingView data backend with 60s cache
+FastAPI + TradingView scanner API backend with 60s cache
 Deployed on Render — serves /api/market to public Dashboard HTML
+v2.2 — Verified TradingView exchange prefixes (2026-06-02)
 """
 
 from fastapi import FastAPI
@@ -15,7 +16,7 @@ import os
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Macro Dashboard API", version="2.1")
+app = FastAPI(title="Macro Dashboard API", version="2.2")
 
 app.add_middleware(
     CORSMiddleware,
@@ -25,25 +26,24 @@ app.add_middleware(
 )
 
 TV_SYMBOL_MAP = {
-    "XAUUSD":  "XAUUSD",
-    "XAGUSD":  "SIUSD",
-    "GLD":     "GLD",
-    "SLV":     "SLV",
-    "DXY":     "DX-Y.NYB",
-    "TLT":     "TLT",
-    "IEF":     "IEF",
-    "TIP":     "TIP",
-    "LQD":     "LQD",
-    "HYG":     "HYG",
-    "US10Y":   "TNX",
-    "US30Y":   "TYX",
-    "US05Y":   "FVX",
-    "SPX":     "^GSPC",
-    "NDX":     "^NDX",
-    "SOXX":    "SOXX",
-    "VIX":     "^VIX",
-    "NVDA":    "NVDA",
-    "TSM":     "TSM",
+    "OANDA:XAUUSD":  "XAUUSD",
+    "TVC:SILVER":    "SIUSD",
+    "AMEX:GLD":      "GLD",
+    "AMEX:SLV":      "SLV",
+    "TVC:DXY":       "DX-Y.NYB",
+    "NASDAQ:TLT":    "TLT",
+    "NASDAQ:IEF":    "IEF",
+    "NASDAQ:TIP":    "TIP",
+    "NASDAQ:LQD":    "LQD",
+    "NASDAQ:HYG":    "HYG",
+    "TVC:US10Y":     "TNX",
+    "TVC:US30Y":     "TYX",
+    "TVC:US05Y":     "FVX",
+    "SP:SPX":        "^GSPC",
+    "CBOE:VIX":      "^VIX",
+    "NASDAQ:SOXX":   "SOXX",
+    "NASDAQ:NVDA":   "NVDA",
+    "NYSE:TSM":      "TSM",
 }
 
 TV_SCAN_URL = "https://scanner.tradingview.com/global/scan"
@@ -61,24 +61,8 @@ CACHE_TTL = 60
 
 async def fetch_market_data() -> dict:
     ts_now = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime())
-    symbols = list(TV_SYMBOL_MAP.keys())
-
-    tv_symbols = []
-    for sym in symbols:
-        if sym in ("XAUUSD", "XAGUSD"):
-            tv_symbols.append(f"OANDA:{sym}")
-        elif sym == "DXY":
-            tv_symbols.append(f"TVC:{sym}")
-        elif sym == "SPX":
-            tv_symbols.append(f"SP:{sym}")
-        elif sym == "NDX":
-            tv_symbols.append(f"NASDAQ:{sym}")
-        elif sym == "VIX":
-            tv_symbols.append(f"CBOE:{sym}")
-        elif sym in ("US10Y", "US30Y", "US05Y"):
-            tv_symbols.append(f"TVC:{sym}")
-        else:
-            tv_symbols.append(f"NASDAQ:{sym}")
+    tv_symbols = list(TV_SYMBOL_MAP.keys())
+    dash_keys  = list(TV_SYMBOL_MAP.values())
 
     payload = {
         "symbols": {"tickers": tv_symbols},
@@ -93,8 +77,7 @@ async def fetch_market_data() -> dict:
     data_list = raw.get("data", [])
     out = {}
 
-    for i, sym in enumerate(symbols):
-        dash_key = TV_SYMBOL_MAP[sym]
+    for i, dash_key in enumerate(dash_keys):
         try:
             if i < len(data_list) and data_list[i]:
                 d = data_list[i].get("d", [])
@@ -123,14 +106,14 @@ async def fetch_market_data() -> dict:
             else:
                 out[dash_key] = None
         except Exception as e:
-            logger.warning(f"Parse failed {sym}: {e}")
+            logger.warning(f"Parse failed idx={i} key={dash_key}: {e}")
             out[dash_key] = None
 
     if out.get("XAUUSD"):
         out["GCUSD"] = dict(out["XAUUSD"])
 
     ok = sum(1 for v in out.values() if v is not None)
-    logger.info(f"TradingView fetch: {ok}/{len(out)} symbols OK")
+    logger.info(f"TradingView fetch OK: {ok}/{len(out)} symbols")
     return out
 
 
@@ -184,7 +167,7 @@ async def health():
 
 @app.get("/")
 async def root():
-    return {"service": "Macro Dashboard API v2.1", "source": "TradingView"}
+    return {"service": "Macro Dashboard API v2.2", "source": "TradingView"}
 
 if os.path.exists("index.html"):
     from fastapi.responses import FileResponse
