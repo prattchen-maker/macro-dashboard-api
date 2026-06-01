@@ -2,7 +2,7 @@
 Macro Core Dashboard v2.0 — Market Data Proxy Server
 FastAPI + TradingView scanner API backend with 60s cache
 Deployed on Render — serves /api/market to public Dashboard HTML
-v2.2 — Verified TradingView exchange prefixes (2026-06-02)
+v2.3 — Symbol matching by 's' field (not position-dependent)
 """
 
 from fastapi import FastAPI
@@ -16,7 +16,7 @@ import os
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Macro Dashboard API", version="2.2")
+app = FastAPI(title="Macro Dashboard API", version="2.3")
 
 app.add_middleware(
     CORSMiddleware,
@@ -62,11 +62,10 @@ CACHE_TTL = 60
 async def fetch_market_data() -> dict:
     ts_now = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime())
     tv_symbols = list(TV_SYMBOL_MAP.keys())
-    dash_keys  = list(TV_SYMBOL_MAP.values())
 
     payload = {
         "symbols": {"tickers": tv_symbols},
-        "columns": ["close", "open", "change", "change_abs"]
+        "columns": ["close", "change", "change_abs"]
     }
 
     async with httpx.AsyncClient(timeout=15.0) as client:
@@ -77,36 +76,41 @@ async def fetch_market_data() -> dict:
     data_list = raw.get("data", [])
     out = {}
 
-    for i, dash_key in enumerate(dash_keys):
+    for item in data_list:
+        tv_sym = item.get("s", "")
+        dash_key = TV_SYMBOL_MAP.get(tv_sym)
+        if dash_key is None:
+            continue
         try:
-            if i < len(data_list) and data_list[i]:
-                d = data_list[i].get("d", [])
-                price      = d[0] if len(d) > 0 else None
-                change_pct = d[2] if len(d) > 2 else None
-                change_abs = d[3] if len(d) > 3 else None
+            d = item.get("d", [])
+            price      = d[0] if len(d) > 0 else None
+            change_pct = d[1] if len(d) > 1 else None
+            change_abs = d[2] if len(d) > 2 else None
 
-                if price is not None:
-                    if change_pct is not None and change_pct != 0:
-                        prev_close = price / (1 + change_pct / 100)
-                    elif change_abs is not None:
-                        prev_close = price - change_abs
-                    else:
-                        prev_close = price
-
-                    out[dash_key] = {
-                        "price":  round(float(price), 4),
-                        "prev":   round(float(prev_close), 4),
-                        "change": round(float(change_abs), 4) if change_abs else 0,
-                        "pct":    round(float(change_pct), 4) if change_pct else 0,
-                        "ts":     ts_now,
-                        "src":    "TradingView",
-                    }
+            if price is not None:
+                if change_pct is not None and change_pct != 0:
+                    prev_close = price / (1 + change_pct / 100)
+                elif change_abs is not None:
+                    prev_close = price - change_abs
                 else:
-                    out[dash_key] = None
+                    prev_close = price
+
+                out[dash_key] = {
+                    "price":  round(float(price), 4),
+                    "prev":   round(float(prev_close), 4),
+                    "change": round(float(change_abs), 4) if change_abs else 0,
+                    "pct":    round(float(change_pct), 4) if change_pct else 0,
+                    "ts":     ts_now,
+                    "src":    "TradingView",
+                }
             else:
                 out[dash_key] = None
         except Exception as e:
-            logger.warning(f"Parse failed idx={i} key={dash_key}: {e}")
+            logger.warning(f"Parse failed {tv_sym}: {e}")
+            out[dash_key] = None
+
+    for tv_sym, dash_key in TV_SYMBOL_MAP.items():
+        if dash_key not in out:
             out[dash_key] = None
 
     if out.get("XAUUSD"):
@@ -167,7 +171,7 @@ async def health():
 
 @app.get("/")
 async def root():
-    return {"service": "Macro Dashboard API v2.2", "source": "TradingView"}
+    return {"service": "Macro Dashboard API v2.3", "source": "TradingView"}
 
 if os.path.exists("index.html"):
     from fastapi.responses import FileResponse
